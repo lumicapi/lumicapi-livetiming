@@ -255,6 +255,62 @@
     td, th { padding: 4px 6px; }
     .tab { padding: 8px 12px; font-size: 11px; }
   }
+
+  /* ── chart modal ── */
+  #chart-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.88);
+    z-index: 200;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px;
+    padding-top: calc(12px + var(--safe-top));
+    padding-bottom: calc(12px + var(--safe-bot));
+  }
+  #chart-inner {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    max-width: 1200px;
+    margin: 0 auto;
+    position: relative;
+  }
+  #chart-title {
+    font-size: 13px;
+    color: var(--accent);
+    margin-bottom: 10px;
+    padding-right: 32px;
+  }
+  #chart-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 16px;
+    padding: 4px 10px;
+    min-height: auto;
+    line-height: 1;
+  }
+  #chart-svg-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #chart-tooltip {
+    display: none;
+    position: fixed;
+    background: #111118;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    pointer-events: none;
+    z-index: 300;
+    max-width: 220px;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -293,6 +349,16 @@
 <div class="cp-selector" id="cp-bar">
   <span>CP:</span>
 </div>
+
+<!-- Chart modal -->
+<div id="chart-modal">
+  <div id="chart-inner">
+    <button id="chart-close" onclick="closeChart()">✕</button>
+    <div id="chart-title"></div>
+    <div id="chart-svg-wrap"></div>
+  </div>
+</div>
+<div id="chart-tooltip"></div>
 
 <div class="view active" id="view0">
   <div class="btn-row">
@@ -510,6 +576,14 @@ function buildCPBar() {
 
   meters.forEach((m, i) => mkBtn(`CP${i+1} (${(m/1000).toFixed(1)}km)`, i));
   mkBtn('Chegada', 'finish');
+
+  const gb = document.createElement('button');
+  gb.className = 'cp-btn';
+  gb.textContent = '📊 Gráfico';
+  gb.style.marginLeft = '8px';
+  gb.style.borderColor = '#4a4a6a';
+  gb.onclick = showChart;
+  bar.appendChild(gb);
 }
 
 // ── timing calculations ───────────────────────────────────────────────────────
@@ -703,10 +777,18 @@ function fmtDifSMS(sec) {
   if (sec == null) return '';
   const sign = sec >= 0 ? '+' : '-';
   const abs = Math.abs(sec);
-  if (abs < 60) return ` ${sign} ${abs.toFixed(1).replace('.', ',')}s`;
-  const m = Math.floor(abs / 60);
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
   const s = (abs % 60).toFixed(1).replace('.', ',');
-  return ` ${sign} ${m}:${s.padStart(4, '0')}`;
+  let str;
+  if (h > 0) {
+    str = `${String(h).padStart(2,'0')}h${String(m).padStart(2,'0')}m${s.padStart(4,'0')}s`;
+  } else if (m > 0) {
+    str = `${String(m).padStart(2,'0')}m${s.padStart(4,'0')}s`;
+  } else {
+    str = `${s}s`;
+  }
+  return ` ${sign} ${str}`;
 }
 
 function copySMS(viewIdx) {
@@ -753,6 +835,225 @@ function copySMS(viewIdx) {
   copyToClipboard(lines.join('\n'))
     .then(() => setStatus('SMS copiado!'))
     .catch(() => setStatus('Erro ao copiar'));
+}
+
+// ── chart ─────────────────────────────────────────────────────────────────────
+
+function pilotColor(idx) {
+  const hue = (idx * 137.508) % 360;
+  const sat = 55 + (idx % 3) * 10;
+  const lit = 50 + (idx % 2) * 10;
+  return `hsl(${hue.toFixed(0)},${sat}%,${lit}%)`;
+}
+
+function showChart() {
+  const sp = specials[currentSpecialIdx];
+  const data = partialsBySpecial[sp.id];
+  if (!data) { setStatus('Sem dados para gráfico'); return; }
+
+  const rawMeters = data.intermediates_meter;
+  const validIdxs = rawMeters.map((m, i) => m > 0 ? i : -1).filter(i => i >= 0);
+  const nCPs = validIdxs.length;
+
+  // Column labels
+  const colLabels = validIdxs.map((ri, i) => [`CP${i+1}`, `${(rawMeters[ri]/1000).toFixed(1)}km`]);
+  colLabels.push(['Chegada', '']);
+  const nCols = colLabels.length;
+
+  const allPids = allParticipantIds();
+
+  // Stable color per pilot
+  const pidColors = {};
+  allPids.forEach((pid, i) => { pidColors[pid] = pilotColor(i); });
+
+  // Build ranking at each column
+  const colData = [];
+  for (let ci = 0; ci < nCPs; ci++) {
+    const rows = [];
+    for (const pid of allPids) {
+      const pt = participantTime(data, pid);
+      if (!pt) continue;
+      const t = pt.cps[validIdxs[ci]];
+      if (t == null) continue;
+      rows.push({ pid, t });
+    }
+    rows.sort((a, b) => a.t - b.t);
+    const map = new Map();
+    rows.forEach((r, i) => map.set(r.pid, { t: r.t, pos: i + 1 }));
+    colData.push({ map, count: rows.length });
+  }
+  // Finish column
+  {
+    const rows = [];
+    for (const pid of allPids) {
+      const pt = participantTime(data, pid);
+      if (!pt || pt.finish == null) continue;
+      rows.push({ pid, t: pt.finish });
+    }
+    rows.sort((a, b) => a.t - b.t);
+    const map = new Map();
+    rows.forEach((r, i) => map.set(r.pid, { t: r.t, pos: i + 1 }));
+    colData.push({ map, count: rows.length });
+  }
+
+  const maxPilots = Math.max(...colData.map(c => c.count), 1);
+
+  // SVG layout — margem esquerda e direita largas para etiquetas
+  const LABEL_W = 96; // espaço para "200 JFerreira"
+  const ML = LABEL_W + 10, MR = LABEL_W + 10, MT = 52, MB = 16;
+  const colW = Math.max(110, Math.min(170, 860 / Math.max(nCols - 1, 1)));
+  const W = ML + colW * (nCols - 1) + MR;
+  const rowH = Math.max(10, Math.min(18, 680 / maxPilots));
+  const H = MT + rowH * (maxPilots - 1) + MB;
+  const fontSize = rowH >= 12 ? 10 : rowH >= 9 ? 8.5 : 7.5;
+
+  const colX = i => ML + i * colW;
+  const posY = pos => MT + (pos - 1) * rowH;
+
+  // Primeiro e último índice de coluna com dados
+  const firstColIdx = colData.findIndex(c => c.count > 0);
+  const lastColIdx  = colData.length - 1 - [...colData].reverse().findIndex(c => c.count > 0);
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" style="display:block;min-width:${Math.min(W, 480)}px;width:100%;">`;
+  svg += `<rect width="${W}" height="${H}" fill="#0f0f13"/>`;
+
+  // Column grid + labels
+  for (let ci = 0; ci < nCols; ci++) {
+    const x = colX(ci);
+    svg += `<line x1="${x}" y1="${MT - 14}" x2="${x}" y2="${H - MB}" stroke="#2e2e3e" stroke-width="1"/>`;
+    svg += `<text x="${x}" y="${MT - 22}" fill="#aaa" font-size="11" text-anchor="middle" font-family="monospace" font-weight="600">${colLabels[ci][0]}</text>`;
+    if (colLabels[ci][1]) svg += `<text x="${x}" y="${MT - 10}" fill="#555" font-size="9" text-anchor="middle" font-family="monospace">${colLabels[ci][1]}</text>`;
+  }
+
+  // Y-axis position ticks (apenas a cada 5 ou 10)
+  const tickStep = maxPilots <= 20 ? 5 : 10;
+  for (let pos = 1; pos <= maxPilots; pos += tickStep) {
+    const y = posY(pos);
+    svg += `<line x1="${ML}" y1="${y}" x2="${W - MR}" y2="${y}" stroke="#1e1e28" stroke-width="0.5" stroke-dasharray="3,5"/>`;
+  }
+
+  // Lines first (behind dots)
+  for (const pid of allPids) {
+    const color = pidColors[pid];
+    const pts = [];
+    for (let ci = 0; ci < nCols; ci++) {
+      const e = colData[ci].map.get(pid);
+      if (e) pts.push({ ci, pos: e.pos });
+    }
+    if (pts.length < 2) continue;
+    let d = '';
+    pts.forEach((p, i) => { d += (i === 0 ? 'M' : 'L') + `${colX(p.ci).toFixed(1)},${posY(p.pos).toFixed(1)}`; });
+    svg += `<path d="${d}" stroke="${color}" stroke-width="1.5" fill="none" opacity="0.4" class="pl" data-pid="${pid}"/>`;
+  }
+
+  // Dots (on top, hoverable)
+  for (const pid of allPids) {
+    const color = pidColors[pid];
+    const p = participants[pid];
+    const label = `${p.ident} — ${pilotShort(pid)}`;
+    for (let ci = 0; ci < nCols; ci++) {
+      const e = colData[ci].map.get(pid);
+      if (!e) continue;
+      const x = colX(ci).toFixed(1);
+      const y = posY(e.pos).toFixed(1);
+      const cp = colLabels[ci][0];
+      const km = colLabels[ci][1] ? ` (${colLabels[ci][1]})` : '';
+      svg += `<circle cx="${x}" cy="${y}" r="4.5" fill="${color}" opacity="0.75" class="pd" data-pid="${pid}" data-lbl="${label}" data-pos="${e.pos}" data-t="${fmtTime(e.t)}" data-cp="${cp}${km}" style="cursor:pointer"/>`;
+    }
+  }
+
+  // Etiquetas: coluna esquerda (firstColIdx) à esquerda dos pontos
+  //            coluna direita  (lastColIdx)  à direita dos pontos
+  for (const pid of allPids) {
+    const color = pidColors[pid];
+    const p = participants[pid];
+    const shortLbl = `${p.ident} ${pilotShort(pid)}`;
+
+    const eFirst = colData[firstColIdx]?.map.get(pid);
+    if (eFirst) {
+      const x = (colX(firstColIdx) - 7).toFixed(1);
+      const y = (posY(eFirst.pos) + fontSize * 0.38).toFixed(1);
+      svg += `<text x="${x}" y="${y}" fill="${color}" font-size="${fontSize}" text-anchor="end" font-family="monospace" opacity="0.9" class="pl" data-pid="${pid}">${shortLbl}</text>`;
+    }
+
+    if (lastColIdx !== firstColIdx) {
+      const eLast = colData[lastColIdx]?.map.get(pid);
+      if (eLast) {
+        const x = (colX(lastColIdx) + 7).toFixed(1);
+        const y = (posY(eLast.pos) + fontSize * 0.38).toFixed(1);
+        svg += `<text x="${x}" y="${y}" fill="${color}" font-size="${fontSize}" text-anchor="start" font-family="monospace" opacity="0.9" class="pl" data-pid="${pid}">${shortLbl}</text>`;
+      }
+    }
+  }
+
+  svg += '</svg>';
+
+  document.getElementById('chart-title').textContent = `Posições por CP — ${sp.name}`;
+  document.getElementById('chart-svg-wrap').innerHTML = svg;
+  document.getElementById('chart-modal').style.display = 'block';
+
+  // Events
+  const wrap = document.getElementById('chart-svg-wrap');
+  const tt = document.getElementById('chart-tooltip');
+
+  function onOver(e) {
+    const dot = e.target.closest('.pd');
+    if (!dot) { tt.style.display = 'none'; unhighlightChart(); return; }
+    const pid = dot.dataset.pid;
+    const color = pidColors[+pid];
+    tt.innerHTML = `<span style="color:${color}">●</span> <b>${dot.dataset.lbl}</b><br>${dot.dataset.cp}: <b>${dot.dataset.pos}º</b> — ${dot.dataset.t}`;
+    const x = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+    tt.style.left = `${Math.min(x + 14, window.innerWidth - 240)}px`;
+    tt.style.top  = `${Math.max(y - 50, 8)}px`;
+    tt.style.display = 'block';
+    highlightChart(pid);
+  }
+
+  wrap._chartOver = onOver;
+  wrap._chartOut = () => { tt.style.display = 'none'; unhighlightChart(); };
+
+  wrap.addEventListener('mousemove', wrap._chartOver);
+  wrap.addEventListener('mouseleave', wrap._chartOut);
+  wrap.addEventListener('touchstart', e => {
+    e.preventDefault();
+    onOver(e);
+  }, { passive: false });
+  wrap.addEventListener('touchend', () => {
+    setTimeout(() => { tt.style.display = 'none'; unhighlightChart(); }, 1800);
+  });
+}
+
+function highlightChart(pid) {
+  document.querySelectorAll('.pl').forEach(el => {
+    const mine = el.dataset.pid === pid;
+    el.style.opacity = mine ? '1' : '0.06';
+    el.style.strokeWidth = mine ? '2.5' : '1';
+  });
+  document.querySelectorAll('.pd').forEach(el => {
+    const mine = el.dataset.pid === pid;
+    el.style.opacity = mine ? '1' : '0.08';
+    el.setAttribute('r', mine ? '6' : '3');
+  });
+}
+
+function unhighlightChart() {
+  document.querySelectorAll('.pl').forEach(el => {
+    el.style.opacity = '0.4';
+    el.style.strokeWidth = '1.5';
+  });
+  document.querySelectorAll('.pd').forEach(el => {
+    el.style.opacity = '0.75';
+    el.setAttribute('r', '4.5');
+  });
+}
+
+function closeChart() {
+  const wrap = document.getElementById('chart-svg-wrap');
+  if (wrap._chartOver) wrap.removeEventListener('mousemove', wrap._chartOver);
+  if (wrap._chartOut) wrap.removeEventListener('mouseleave', wrap._chartOut);
+  document.getElementById('chart-modal').style.display = 'none';
+  document.getElementById('chart-tooltip').style.display = 'none';
 }
 
 function setupRefresh() {
