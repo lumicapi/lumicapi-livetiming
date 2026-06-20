@@ -865,8 +865,10 @@ function buildTable(rows, refTime, colHeader, penFn) {
 function renderTable0() {
   const rows = [];
   const dnfPids = [];
+  const atFinish = currentCP === 'finish';
   for (const pid of allParticipantIds()) {
-    if (participants[pid].abandon_special_id) {
+    // Na Chegada: separar DNF. Nos CPs intermédios: mostrar todos com tempo
+    if (atFinish && participants[pid].abandon_special_id) {
       dnfPids.push(pid);
       continue;
     }
