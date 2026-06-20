@@ -248,15 +248,19 @@
     margin-left: 4px; letter-spacing: .03em; line-height: 14px;
   }
   .pen-inline { display: none; font-size: 11px; font-weight: bold; }
+  .name-short { display: none; }
   @media (max-width: 640px) {
-    .col-pos, .col-grupo, .col-pen, .col-difref, .col-dif1 { display: none; }
     .pen-inline { display: block; margin-top: 1px; }
-    td, th { padding: 6px 5px; font-size: 12px; }
+    td, th { padding: 6px 4px; font-size: 12px; }
     .brand-badge { font-size: 8px; padding: 1px 3px; }
     .num { font-size: 13px; }
-    table { width: 100%; min-width: unset; }
+    table { table-layout: fixed; width: 100%; min-width: unset; }
+    .col-num  { width: 60px; }
+    .col-grupo { width: 40px; font-size: 10px; }
+    .col-tempo { width: 74px; }
     .time-val { white-space: nowrap; }
-    .pilot-cell .grp { display: block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .name-full { display: none; }
+    .name-short { display: inline; }
   }
   .grp { color: var(--muted); font-size: 10px; }
   .time-val { font-variant-numeric: tabular-nums; }
@@ -532,6 +536,18 @@ function vehicleBadge(vehicle) {
   }
   const abbr = vehicle.split(' ')[0].slice(0, 2).toUpperCase();
   return `<span class="brand-badge" style="background:#444;color:#ddd">${abbr}</span>`;
+}
+
+function shortName(name) {
+  if (!name) return name;
+  const p = name.trim().split(/\s+/);
+  return p.length <= 2 ? name : p[0] + ' ' + p[p.length - 1];
+}
+function nameHtml(name) {
+  const s = shortName(name);
+  return s === name
+    ? name
+    : `<span class="name-full">${name}</span><span class="name-short">${s}</span>`;
 }
 
 function fmtTime(sec) {
@@ -865,14 +881,22 @@ function makeRow(cells, isRef, pid) {
 
 function buildTable(rows, refTime, colHeader, penFn) {
   const hasPen = !!penFn;
-  const penTh = hasPen ? '<th class="pen-col col-pen">Pen.</th>' : '';
-  const thead = `<thead><tr>
-    <th class="pos col-pos">Pos</th><th>Nº</th><th>Piloto</th>
-    <th class="col-grupo">Grupo</th>
-    <th>${colHeader}</th>${penTh}
-    <th class="col-dif1">Dif 1º</th>
-    <th class="col-difref" style="color:var(--ref-col)">Dif Ref</th>
-  </tr></thead>`;
+  const mob = window.innerWidth < 640;
+  // Colunas: mobile mostra só Nº|Piloto|Grupo|Tempo; desktop mostra tudo
+  const penTh = hasPen ? '<th class="pen-col">Pen.</th>' : '';
+  const thead = mob
+    ? `<thead><tr>
+        <th class="col-num">Nº</th><th>Piloto</th>
+        <th class="col-grupo">Grupo</th>
+        <th class="col-tempo">${colHeader}</th>
+       </tr></thead>`
+    : `<thead><tr>
+        <th class="pos">Pos</th><th class="col-num">Nº</th><th>Piloto</th>
+        <th class="col-grupo">Grupo</th>
+        <th class="col-tempo">${colHeader}</th>${penTh}
+        <th>Dif 1º</th>
+        <th style="color:var(--ref-col)">Dif Ref</th>
+       </tr></thead>`;
   const tbodyRows = rows.map((r, i) => {
     const p = participants[r.pid];
     const isRef = r.pid === refId;
@@ -885,24 +909,34 @@ function buildTable(rows, refTime, colHeader, penFn) {
       if (pen.total !== 0) {
         penDataMap.set(r.pid, pen);
         const cls = pen.total > 0 ? 'pen-pos' : 'pen-neg';
-        penCell = `<td class="pen-col col-pen"><span class="${cls} pen-click" data-pen-pid="${r.pid}">${fmtPenTime(pen.total)}</span></td>`;
+        penCell = `<td class="pen-col"><span class="${cls} pen-click" data-pen-pid="${r.pid}">${fmtPenTime(pen.total)}</span></td>`;
         penInline = `<span class="pen-inline ${cls} pen-click" data-pen-pid="${r.pid}">${fmtPenTime(pen.total)}</span>`;
       } else {
-        penCell = '<td class="pen-col col-pen"></td>';
+        penCell = '<td class="pen-col"></td>';
       }
     }
     const badge = vehicleBadge(p.vehicle);
     const refAttr = isRef ? ' class="ref-row"' : '';
     const click = isRef ? '' : ` onclick="setRef(${r.pid})"`;
+    const pilot = mob ? nameHtml(p.pilot) : p.pilot;
+    const copilot = mob ? nameHtml(p.copilot) : p.copilot;
+    if (mob) {
+      return `<tr${refAttr}>
+        <td class="col-num"><span class="num">${p.ident}</span>${badge}</td>
+        <td class="pilot-cell"${click}>${pilot}<br><span class="grp">${copilot}</span></td>
+        <td class="col-grupo"><span class="grp">${p.group}</span></td>
+        <td class="col-tempo"><span class="time-val">${fmtTime(r.t)}</span>${penInline}</td>
+      </tr>`;
+    }
     return `<tr${refAttr}>
-      <td class="pos col-pos">${i + 1}</td>
-      <td><span class="num">${p.ident}</span>${badge}</td>
-      <td class="pilot-cell"${click}>${p.pilot}<br><span class="grp">${p.copilot}</span></td>
+      <td class="pos">${i + 1}</td>
+      <td class="col-num"><span class="num">${p.ident}</span>${badge}</td>
+      <td class="pilot-cell"${click}>${pilot}<br><span class="grp">${copilot}</span></td>
       <td class="col-grupo"><span class="grp">${p.group}</span></td>
-      <td><span class="time-val">${fmtTime(r.t)}</span>${penInline}</td>
+      <td class="col-tempo"><span class="time-val">${fmtTime(r.t)}</span>${penInline}</td>
       ${penCell}
-      <td class="col-dif1">${i === 0 ? '<span class="dif-zero">—</span>' : fmtDif(dif1)}</td>
-      <td class="col-difref">${isRef ? '<span class="dif-zero">REF</span>' : fmtDif(difRef)}</td>
+      <td>${i === 0 ? '<span class="dif-zero">—</span>' : fmtDif(dif1)}</td>
+      <td>${isRef ? '<span class="dif-zero">REF</span>' : fmtDif(difRef)}</td>
     </tr>`;
   });
   return thead + `<tbody>${tbodyRows.join('')}</tbody>`;
@@ -938,10 +972,9 @@ function renderTable0() {
   // Linhas DNF no final
   if (dnfPids.length > 0) {
     const hasPen = !!penFn;
-    // Calcular número total de colunas: Pos+Nº+Piloto+Grupo+Tempo + [Pen] + Dif1 + DifRef
-    const nCols = hasPen ? 8 : 7;
+    const mob = window.innerWidth < 640;
+    const nCols = mob ? 4 : (hasPen ? 8 : 7);
     let dnfHtml = `<tbody><tr><td colspan="${nCols}" class="dnf-separator">— Não classificados / DNF —</td></tr>`;
-    // Ordenar DNF por special e depois por dorsal
     dnfPids.sort((a, b) => {
       const sa = participants[a].abandon_special_id || 0;
       const sb = participants[b].abandon_special_id || 0;
@@ -954,15 +987,26 @@ function renderTable0() {
       const spName = sp ? sp.name : '?';
       const parts = [p.abandon_place, p.abandon_reason].filter(Boolean);
       const reasonHtml = parts.length ? `<br><span class="dnf-reason">${parts.join(' — ')}</span>` : '';
-      const penCell = hasPen ? '<td></td>' : '';
-      dnfHtml += `<tr class="dnf-row">
-        <td class="pos col-pos">DNF</td>
-        <td><span class="num dnf-num">${p.ident}</span></td>
-        <td class="pilot-cell">${p.pilot}<br><span class="grp">${p.copilot}</span></td>
-        <td><span class="grp">${p.group}</span></td>
-        <td class="dnf-time">DNF em ${spName}${reasonHtml}</td>
-        ${penCell}<td class="col-dif1"></td><td class="col-difref"></td>
-      </tr>`;
+      const pilot = mob ? nameHtml(p.pilot) : p.pilot;
+      const copilot = mob ? nameHtml(p.copilot) : p.copilot;
+      if (mob) {
+        dnfHtml += `<tr class="dnf-row">
+          <td class="col-num"><span class="num dnf-num">${p.ident}</span></td>
+          <td class="pilot-cell">${pilot}<br><span class="grp">${copilot}</span></td>
+          <td class="col-grupo"><span class="grp">${p.group}</span></td>
+          <td class="col-tempo dnf-time">DNF em ${spName}${reasonHtml}</td>
+        </tr>`;
+      } else {
+        const penCell = hasPen ? '<td></td>' : '';
+        dnfHtml += `<tr class="dnf-row">
+          <td class="pos">DNF</td>
+          <td class="col-num"><span class="num dnf-num">${p.ident}</span></td>
+          <td class="pilot-cell">${pilot}<br><span class="grp">${copilot}</span></td>
+          <td class="col-grupo"><span class="grp">${p.group}</span></td>
+          <td class="col-tempo dnf-time">DNF em ${spName}${reasonHtml}</td>
+          ${penCell}<td></td><td></td>
+        </tr>`;
+      }
     }
     dnfHtml += '</tbody>';
     // Inserir antes do </table> final — buildTable devolve thead+tbody sem tag table
