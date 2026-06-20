@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lumicapi Timing">
+<meta name="theme-color" content="#1a1a22">
+<title>Lumicapi Live Timing</title>
+<style>
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a22;
+    --border: #2e2e3e;
+    --accent: #e8a020;
+    --red: #e05050;
+    --green: #40b870;
+    --text: #e8e8f0;
+    --muted: #888;
+    --ref-col: #e05050;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bot: env(safe-area-inset-bottom, 0px);
+    --safe-l:   env(safe-area-inset-left, 0px);
+    --safe-r:   env(safe-area-inset-right, 0px);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Fira Mono', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    min-height: 100%;
+    padding-bottom: var(--safe-bot);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* ── header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 12px;
+    padding-top: calc(8px + var(--safe-top));
+    padding-left: calc(12px + var(--safe-l));
+    padding-right: calc(12px + var(--safe-r));
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  header h1 {
+    font-size: 14px;
+    color: var(--accent);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .controls {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .controls span { white-space: nowrap; font-size: 12px; color: var(--muted); }
+
+  select, button {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-size: 16px; /* ≥16px evita zoom automático no iOS */
+    font-family: inherit;
+    cursor: pointer;
+    min-height: 36px;
+    -webkit-appearance: none;
+    appearance: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  select { padding-right: 24px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+
+  button { font-size: 12px; }
+  button:active { background: #222230; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .badge {
+    background: var(--accent);
+    color: #000;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 11px;
+    font-weight: bold;
+    white-space: nowrap;
+  }
+  .badge.live { background: var(--red); color: #fff; }
+  .badge.done { background: var(--muted); color: #fff; }
+
+  #status { font-size: 11px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+  #ref-label { font-size: 11px; color: var(--ref-col); white-space: nowrap; }
+
+  .prl-label {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .prl-label input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+
+  /* ── tabs ── */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    padding-left: var(--safe-l);
+    padding-right: var(--safe-r);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+
+  .tab {
+    padding: 10px 16px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── CP bar ── */
+  .cp-selector {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 6px 12px;
+    padding-left: calc(12px + var(--safe-l));
+    padding-right: calc(12px + var(--safe-r));
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+  }
+  .cp-selector::-webkit-scrollbar { display: none; }
+  .cp-selector > span { color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+
+  .cp-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 5px 10px;
+    min-height: 34px;
+    font-size: 12px;
+  }
+  .cp-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  /* ── views ── */
+  .view { display: none; padding: 10px; padding-left: calc(10px + var(--safe-l)); padding-right: calc(10px + var(--safe-r)); }
+  .view.active { display: block; }
+
+  .btn-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+
+  /* ── tables ── */
+  .tbl-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 6px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    min-width: 480px;
+  }
+
+  th {
+    background: var(--surface);
+    color: var(--muted);
+    text-align: right;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  th:nth-child(1), th:nth-child(2), th:nth-child(3) { text-align: left; }
+
+  td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #1e1e28;
+    text-align: right;
+    white-space: nowrap;
+  }
+  td:nth-child(1), td:nth-child(2), td:nth-child(3) { text-align: left; }
+
+  @media (hover: hover) {
+    tr:hover td { background: #22222e; }
+  }
+  tr:active td { background: #22222e; }
+
+  tr.ref-row td { color: var(--ref-col); font-weight: bold; }
+  tr.ref-row td.pilot-cell { cursor: default; }
+
+  td.pilot-cell {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  @media (hover: hover) {
+    td.pilot-cell:hover { color: var(--accent); }
+  }
+
+  .pos { color: var(--muted); min-width: 28px; }
+  .num { color: var(--accent); font-weight: bold; }
+  .grp { color: var(--muted); font-size: 10px; }
+  .time-val { font-variant-numeric: tabular-nums; }
+  .dif-pos { color: var(--green); }
+  .dif-neg { color: var(--red); }
+  .dif-zero { color: var(--muted); }
+
+  /* ── mobile breakpoint ── */
+  @media (max-width: 480px) {
+    body { font-size: 12px; }
+    header { gap: 8px; padding: 6px 10px; padding-top: calc(6px + var(--safe-top)); }
+    header h1 { font-size: 13px; }
+    table { font-size: 11px; min-width: 400px; }
+    td, th { padding: 4px 6px; }
+    .tab { padding: 8px 12px; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⏱ Lumicapi Timing</h1>
+  <div class="controls">
+    <span>Especial:</span>
+    <select id="sel-special"></select>
+    <span id="special-badge" class="badge">—</span>
+  </div>
+  <div class="controls">
+    <span>Refresh:</span>
+    <select id="sel-refresh">
+      <option value="0">Off</option>
+      <option value="30">30 s</option>
+      <option value="60" selected>60 s</option>
+      <option value="120">2 min</option>
+    </select>
+    <button onclick="loadData()">↺</button>
+  </div>
+  <label class="prl-label">
+    <input type="checkbox" id="chk-prl" onchange="renderAll()">
+    PRL soma ao geral
+  </label>
+  <span id="ref-label">Ref: —</span>
+  <span id="status">A carregar…</span>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab(0)">1 · Geral acumulada</div>
+  <div class="tab" onclick="switchTab(1)">2 · Especial até CP</div>
+  <div class="tab" onclick="switchTab(2)">3 · Setor entre CPs</div>
+</div>
+
+<div class="cp-selector" id="cp-bar">
+  <span>CP:</span>
+</div>
+
+<div class="view active" id="view0">
+  <div class="btn-row">
+    <button onclick="copyTable(0)">📋 Copiar tabela</button>
+    <button onclick="copySMS(0)">📱 Copiar SMS</button>
+  </div>
+  <div class="tbl-wrap"><table id="table0"></table></div>
+</div>
+<div class="view" id="view1">
+  <div class="btn-row">
+    <button onclick="copyTable(1)">📋 Copiar tabela</button>
+    <button onclick="copySMS(1)">📱 Copiar SMS</button>
+  </div>
+  <div class="tbl-wrap"><table id="table1"></table></div>
+</div>
+<div class="view" id="view2">
+  <div class="btn-row">
+    <button onclick="copyTable(2)">📋 Copiar tabela</button>
+  </div>
+  <div class="tbl-wrap"><table id="table2"></table></div>
+</div>
+
+<script>
+const RALLY_ID = 359;
+const BASE = 'https://rest3.anube.es/rallyrest/timing/api';
+
+let specials = [];
+let participants = {};
+let partialsBySpecial = {};
+let prlTimes = {};
+
+let currentSpecialIdx = 0;
+let currentCP = 0;
+let refId = null;
+let activeTab = 0;
+let refreshTimer = null;
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function fmtTime(sec) {
+  if (sec == null || isNaN(sec)) return '—';
+  const neg = sec < 0;
+  sec = Math.abs(sec);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const core = h > 0
+    ? `${h}:${String(m).padStart(2,'0')}:${s.toFixed(1).padStart(4,'0')}`
+    : `${m}:${s.toFixed(1).padStart(4,'0')}`;
+  return neg ? '-' + core : core;
+}
+
+function fmtDif(sec) {
+  if (sec == null || isNaN(sec)) return '—';
+  if (Math.abs(sec) < 0.05) return '<span class="dif-zero">±0.0</span>';
+  const sign = sec > 0 ? '+' : '';
+  const cls = sec > 0 ? 'dif-neg' : 'dif-pos';
+  return `<span class="${cls}">${sign}${fmtTime(sec)}</span>`;
+}
+
+function schedStart(utStart) {
+  return utStart - (utStart % 60);
+}
+
+function participantTime(specialData, pid) {
+  const t = specialData.times[String(pid)];
+  if (!t) return null;
+  const sched = schedStart(t.ut_start);
+  const cps = (t.uts_partial || []).map(u => u != null ? u - sched : null);
+  const finish = t.ut_finish != null ? t.ut_finish - sched : null;
+  return { cps, finish, run: t.run };
+}
+
+// ── clipboard (com fallback para iOS antigo) ──────────────────────────────────
+
+function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  // fallback execCommand
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy') ? resolve() : reject();
+    } catch(e) { reject(e); }
+    document.body.removeChild(ta);
+  });
+}
+
+// ── fetch ─────────────────────────────────────────────────────────────────────
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function loadMeta() {
+  const [sData, pData] = await Promise.all([
+    fetchJSON(`${BASE}/specials/${RALLY_ID}.json`),
+    fetchJSON(`${BASE}/participants/${RALLY_ID}.json`),
+  ]);
+
+  const itin = sData.event.data.itineraries[0];
+  specials = itin.specials.map(s => ({
+    id: s.id,
+    name: s.special_name,
+    extra: s.name_extra,
+    compute: s.compute,
+    state: s.state,
+    meters: s.meters,
+  }));
+
+  participants = {};
+  for (const p of pData.event.data) {
+    participants[p.id] = {
+      ident: p.ident,
+      pilot: p.pilot,
+      copilot: p.copilot,
+      group: p.group,
+      category: p.category,
+      active: p.active,
+      abandon_special_id: p.abandon_special_id,
+    };
+  }
+
+  const sel = document.getElementById('sel-special');
+  sel.innerHTML = '';
+  specials.forEach((s, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.text = `${s.name} — ${s.extra}`;
+    sel.appendChild(opt);
+    if (s.state === 1) { sel.value = i; currentSpecialIdx = i; }
+  });
+  sel.addEventListener('change', () => {
+    currentSpecialIdx = +sel.value;
+    currentCP = 0;
+    refId = null;
+    loadData();
+  });
+}
+
+async function loadData() {
+  setStatus('A carregar…');
+  try {
+    const prlSpecial = specials.find(s => s.compute === 0);
+    const toFetch = new Set();
+    if (prlSpecial) toFetch.add(prlSpecial.id);
+    for (let i = 0; i <= currentSpecialIdx; i++) {
+      if (specials[i].compute === 1) toFetch.add(specials[i].id);
+    }
+
+    const results = await Promise.all(
+      [...toFetch].map(sid =>
+        fetchJSON(`${BASE}/partials/${RALLY_ID}.json?special_id=${sid}`)
+          .then(d => [sid, d.event.data])
+      )
+    );
+    for (const [sid, data] of results) {
+      partialsBySpecial[sid] = data;
+    }
+
+    if (prlSpecial) {
+      const pd = partialsBySpecial[prlSpecial.id];
+      prlTimes = {};
+      if (pd) {
+        for (const [pid, t] of Object.entries(pd.times)) {
+          const sched = schedStart(t.ut_start);
+          prlTimes[pid] = t.ut_finish != null ? t.ut_finish - sched : null;
+        }
+      }
+    }
+
+    updateBadge();
+    buildCPBar();
+    renderAll();
+    setStatus(`${new Date().toLocaleTimeString('pt-PT')}`);
+  } catch(e) {
+    setStatus('Erro: ' + e.message);
+  }
+}
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+function updateBadge() {
+  const sp = specials[currentSpecialIdx];
+  const badge = document.getElementById('special-badge');
+  badge.textContent = ['Não iniciada','Em curso','Terminada'][sp.state] ?? '—';
+  badge.className = 'badge ' + (['','live','done'][sp.state] ?? '');
+}
+
+function buildCPBar() {
+  const sp = specials[currentSpecialIdx];
+  const data = partialsBySpecial[sp.id];
+  const bar = document.getElementById('cp-bar');
+  bar.innerHTML = '<span>CP:</span>';
+
+  const meters = data ? data.intermediates_meter.filter(m => m > 0) : [];
+
+  const mkBtn = (label, idx) => {
+    const b = document.createElement('button');
+    b.className = 'cp-btn' + (currentCP === idx ? ' active' : '');
+    b.textContent = label;
+    b.onclick = () => { currentCP = idx; buildCPBar(); renderAll(); };
+    bar.appendChild(b);
+  };
+
+  meters.forEach((m, i) => mkBtn(`CP${i+1} (${(m/1000).toFixed(1)}km)`, i));
+  mkBtn('Chegada', 'finish');
+}
+
+// ── timing calculations ───────────────────────────────────────────────────────
+
+function getTimeAtCP(specialId, pid) {
+  const data = partialsBySpecial[specialId];
+  if (!data) return null;
+  const t = participantTime(data, pid);
+  if (!t) return null;
+  if (currentCP === 'finish') return t.finish;
+  const validIdxs = data.intermediates_meter.map((m,i) => m > 0 ? i : -1).filter(i => i >= 0);
+  const rawIdx = validIdxs[currentCP];
+  if (rawIdx == null) return null;
+  return t.cps[rawIdx] ?? null;
+}
+
+function getSectorTime(specialId, pid) {
+  const data = partialsBySpecial[specialId];
+  if (!data) return null;
+  const t = participantTime(data, pid);
+  if (!t) return null;
+  const validIdxs = data.intermediates_meter.map((m,i) => m > 0 ? i : -1).filter(i => i >= 0);
+  let curr, prev;
+  if (currentCP === 'finish') {
+    curr = t.finish;
+    const lastIdx = validIdxs[validIdxs.length - 1];
+    prev = lastIdx != null ? t.cps[lastIdx] : 0;
+  } else {
+    const rawIdx = validIdxs[currentCP];
+    curr = rawIdx != null ? t.cps[rawIdx] : null;
+    if (currentCP === 0) {
+      prev = 0;
+    } else {
+      const prevRaw = validIdxs[currentCP - 1];
+      prev = prevRaw != null ? t.cps[prevRaw] : null;
+    }
+  }
+  if (curr == null || prev == null) return null;
+  return curr - prev;
+}
+
+function getAccumTime(pid) {
+  let total = 0;
+  const prlSpecial = specials.find(s => s.compute === 0);
+  const prlSoma = document.getElementById('chk-prl')?.checked;
+  if (prlSoma && prlSpecial && prlTimes[String(pid)] != null) {
+    total += prlTimes[String(pid)];
+  }
+  for (let i = 0; i < currentSpecialIdx; i++) {
+    if (specials[i].compute !== 1) continue;
+    const data = partialsBySpecial[specials[i].id];
+    if (!data) return null;
+    const t = participantTime(data, pid);
+    if (!t || t.finish == null) return null;
+    total += t.finish;
+  }
+  const sp = specials[currentSpecialIdx];
+  if (sp.compute === 1) {
+    const cpTime = getTimeAtCP(sp.id, pid);
+    if (cpTime == null) return null;
+    total += cpTime;
+  }
+  return total;
+}
+
+function allParticipantIds() {
+  return Object.keys(participants).map(Number);
+}
+
+// ── rendering ─────────────────────────────────────────────────────────────────
+
+function renderAll() {
+  const p = refId ? participants[refId] : null;
+  document.getElementById('ref-label').textContent =
+    p ? `Ref: ${p.ident} ${p.pilot.split(' ')[0]}` : 'Ref: —';
+  renderTable0();
+  renderTable1();
+  renderTable2();
+}
+
+function makeRow(cells, isRef, pid) {
+  const refAttr = isRef ? ' class="ref-row"' : '';
+  const tds = cells.map((c, i) => {
+    if (i === 2) {
+      const click = isRef ? '' : ` onclick="setRef(${pid})"`;
+      return `<td class="pilot-cell"${click}>${c}</td>`;
+    }
+    return `<td>${c}</td>`;
+  });
+  return `<tr${refAttr}>${tds.join('')}</tr>`;
+}
+
+function buildTable(rows, refTime, colHeader) {
+  const thead = `<thead><tr>
+    <th class="pos">Pos</th><th>Nº</th><th>Piloto</th><th>Grupo</th>
+    <th>${colHeader}</th><th>Dif 1º</th><th style="color:var(--ref-col)">Dif Ref</th>
+  </tr></thead>`;
+  const tbodyRows = rows.map((r, i) => {
+    const p = participants[r.pid];
+    const isRef = r.pid === refId;
+    const dif1 = i === 0 ? null : r.t - rows[0].t;
+    const difRef = refTime != null ? r.t - refTime : null;
+    return makeRow([
+      i + 1,
+      `<span class="num">${p.ident}</span>`,
+      `${p.pilot}<br><span class="grp">${p.copilot}</span>`,
+      `<span class="grp">${p.group}</span>`,
+      `<span class="time-val">${fmtTime(r.t)}</span>`,
+      i === 0 ? '<span class="dif-zero">—</span>' : fmtDif(dif1),
+      isRef ? '<span class="dif-zero">REF</span>' : fmtDif(difRef),
+    ], isRef, r.pid);
+  });
+  return thead + `<tbody>${tbodyRows.join('')}</tbody>`;
+}
+
+function renderTable0() {
+  const rows = [];
+  for (const pid of allParticipantIds()) {
+    const t = getAccumTime(pid);
+    if (t != null) rows.push({ pid, t });
+  }
+  rows.sort((a, b) => a.t - b.t);
+  const refTime = refId ? rows.find(r => r.pid === refId)?.t : null;
+  document.getElementById('table0').innerHTML = buildTable(rows, refTime, 'Tempo acum.');
+}
+
+function renderTable1() {
+  const sp = specials[currentSpecialIdx];
+  const rows = [];
+  for (const pid of allParticipantIds()) {
+    const t = getTimeAtCP(sp.id, pid);
+    if (t != null) rows.push({ pid, t });
+  }
+  rows.sort((a, b) => a.t - b.t);
+  const cpLabel = currentCP === 'finish' ? 'Chegada' : `CP${currentCP+1}`;
+  const refTime = refId ? rows.find(r => r.pid === refId)?.t : null;
+  document.getElementById('table1').innerHTML = buildTable(rows, refTime, `${sp.name} até ${cpLabel}`);
+}
+
+function renderTable2() {
+  const sp = specials[currentSpecialIdx];
+  const data = partialsBySpecial[sp.id];
+  const rows = [];
+  for (const pid of allParticipantIds()) {
+    const t = getSectorTime(sp.id, pid);
+    if (t != null) rows.push({ pid, t });
+  }
+  rows.sort((a, b) => a.t - b.t);
+  const cpLabel = currentCP === 'finish' ? 'Chegada' : `CP${currentCP+1}`;
+  const nValid = data ? data.intermediates_meter.filter(m => m > 0).length : '?';
+  const prevLabel = currentCP === 'finish'
+    ? `CP${nValid}`
+    : currentCP === 0 ? 'Saída' : `CP${currentCP}`;
+  const refTime = refId ? rows.find(r => r.pid === refId)?.t : null;
+  document.getElementById('table2').innerHTML = buildTable(rows, refTime, `Setor ${prevLabel}→${cpLabel}`);
+}
+
+// ── interactions ──────────────────────────────────────────────────────────────
+
+function setRef(pid) {
+  refId = refId === pid ? null : pid;
+  renderAll();
+}
+
+function switchTab(idx) {
+  activeTab = idx;
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  document.querySelectorAll('.view').forEach((v, i) => v.classList.toggle('active', i === idx));
+}
+
+function copyTable(viewIdx) {
+  const tbl = document.getElementById(`table${viewIdx}`);
+  const lines = [...tbl.querySelectorAll('tr')].map(row =>
+    [...row.querySelectorAll('th, td')].map(c => c.innerText.replace(/\n/g, ' ')).join('\t')
+  );
+  copyToClipboard(lines.join('\n'))
+    .then(() => setStatus('Copiado!'))
+    .catch(() => setStatus('Erro ao copiar'));
+}
+
+function pilotShort(pid) {
+  const p = participants[pid];
+  if (!p) return '?';
+  const parts = p.pilot.trim().split(/\s+/);
+  const initial = parts[0][0].toUpperCase();
+  const surname = parts[parts.length - 1];
+  return initial + surname[0].toUpperCase() + surname.slice(1).toLowerCase();
+}
+
+function fmtDifSMS(sec) {
+  if (sec == null) return '';
+  const sign = sec >= 0 ? '+' : '-';
+  const abs = Math.abs(sec);
+  if (abs < 60) return ` ${sign} ${abs.toFixed(1).replace('.', ',')}s`;
+  const m = Math.floor(abs / 60);
+  const s = (abs % 60).toFixed(1).replace('.', ',');
+  return ` ${sign} ${m}:${s.padStart(4, '0')}`;
+}
+
+function copySMS(viewIdx) {
+  const sp = specials[currentSpecialIdx];
+  const data = partialsBySpecial[sp.id];
+  const validMeters = data ? data.intermediates_meter.filter(m => m > 0) : [];
+  const kmLabel = currentCP === 'finish'
+    ? (sp.meters / 1000).toFixed(1)
+    : (validMeters[currentCP] != null ? (validMeters[currentCP] / 1000).toFixed(1) : '?');
+
+  const header = viewIdx === 0 ? `${sp.name} APÓS km ${kmLabel}` : `${sp.name} no km ${kmLabel}`;
+
+  const ids = allParticipantIds();
+  const rows = [];
+  for (const pid of ids) {
+    const t = viewIdx === 0 ? getAccumTime(pid) : getTimeAtCP(sp.id, pid);
+    if (t != null) rows.push({ pid, t });
+  }
+  rows.sort((a, b) => a.t - b.t);
+  if (rows.length === 0) { setStatus('Sem dados'); return; }
+
+  const refTime = refId ? rows.find(r => r.pid === refId)?.t : null;
+  const refPos  = refId ? rows.findIndex(r => r.pid === refId) : -1;
+
+  const toShow = new Set([0]);
+  if (refPos >= 0) {
+    for (let i = Math.max(0, refPos - 2); i <= Math.min(rows.length - 1, refPos + 2); i++) {
+      toShow.add(i);
+    }
+  }
+
+  const idxs = [...toShow].sort((a, b) => a - b);
+  const lines = [header, ''];
+  let prev = -1;
+  for (const idx of idxs) {
+    if (prev >= 0 && idx > prev + 1) lines.push('…');
+    const { pid, t } = rows[idx];
+    const isRef = pid === refId;
+    const dif = isRef || refTime == null ? '' : fmtDifSMS(t - refTime);
+    lines.push(`${idx + 1}º ${pilotShort(pid)}${dif}`);
+    prev = idx;
+  }
+
+  copyToClipboard(lines.join('\n'))
+    .then(() => setStatus('SMS copiado!'))
+    .catch(() => setStatus('Erro ao copiar'));
+}
+
+function setupRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  const secs = +document.getElementById('sel-refresh').value;
+  if (secs > 0) refreshTimer = setInterval(loadData, secs * 1000);
+}
+
+document.getElementById('sel-refresh').addEventListener('change', setupRefresh);
+
+(async () => {
+  try {
+    await loadMeta();
+    await loadData();
+    setupRefresh();
+  } catch(e) {
+    setStatus('Erro: ' + e.message);
+  }
+})();
+</script>
+</body>
+</html>
