@@ -247,14 +247,22 @@
     padding: 1px 4px; border-radius: 3px; vertical-align: middle;
     margin-left: 4px; letter-spacing: .03em; line-height: 14px;
   }
-  .pen-inline { display: none; font-size: 11px; margin-left: 6px; font-weight: bold; }
+  .pen-inline { display: none; font-size: 11px; font-weight: bold; }
   @media (max-width: 640px) {
     .col-grupo, .col-pen, .col-difref { display: none; }
-    .pen-inline { display: inline; }
+    .pen-inline { display: block; margin-top: 2px; }
     td, th { padding: 5px 4px; font-size: 12px; }
-    .pilot-cell { max-width: 140px; }
+    .pilot-cell { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pilot-cell br { display: none; }
+    .pilot-cell .grp { display: none; }
     .brand-badge { font-size: 8px; padding: 1px 3px; }
     .num { font-size: 13px; }
+    table { table-layout: fixed; width: 100%; min-width: unset; }
+    table th:nth-child(1), table td:nth-child(1) { width: 32px; }  /* Pos */
+    table th:nth-child(2), table td:nth-child(2) { width: 52px; }  /* Nº + badge */
+    table th:nth-child(3), table td:nth-child(3) { width: auto; }  /* Piloto */
+    table th:nth-child(5), table td:nth-child(5) { width: 68px; }  /* Tempo */
+    table th:nth-child(6), table td:nth-child(6) { width: 52px; }  /* Dif 1º */
   }
   .grp { color: var(--muted); font-size: 10px; }
   .time-val { font-variant-numeric: tabular-nums; }
