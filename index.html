@@ -242,6 +242,20 @@
 
   .pos { color: var(--muted); min-width: 28px; }
   .num { color: var(--accent); font-weight: bold; }
+  .brand-badge {
+    display: inline-block; font-size: 9px; font-weight: 800;
+    padding: 1px 4px; border-radius: 3px; vertical-align: middle;
+    margin-left: 4px; letter-spacing: .03em; line-height: 14px;
+  }
+  .pen-inline { display: none; font-size: 11px; margin-left: 6px; font-weight: bold; }
+  @media (max-width: 640px) {
+    .col-grupo, .col-pen, .col-difref { display: none; }
+    .pen-inline { display: inline; }
+    td, th { padding: 5px 4px; font-size: 12px; }
+    .pilot-cell { max-width: 140px; }
+    .brand-badge { font-size: 8px; padding: 1px 3px; }
+    .num { font-size: 13px; }
+  }
   .grp { color: var(--muted); font-size: 10px; }
   .time-val { font-variant-numeric: tabular-nums; }
   .dif-pos { color: var(--green); }
@@ -487,6 +501,37 @@ let refreshTimer = null;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+const BRAND_MAP = [
+  { keys: ['toyota'],      abbr: 'TY', bg: '#EB0A1E', fg: '#fff' },
+  { keys: ['mini'],        abbr: 'MI', bg: '#1c3a6e', fg: '#fff' },
+  { keys: ['brp','can-am'],abbr: 'CA', bg: '#f7a400', fg: '#000' },
+  { keys: ['polaris'],     abbr: 'PO', bg: '#005baa', fg: '#fff' },
+  { keys: ['ford'],        abbr: 'FO', bg: '#003478', fg: '#fff' },
+  { keys: ['mercedes'],    abbr: 'MB', bg: '#888', fg: '#fff' },
+  { keys: ['nissan'],      abbr: 'NI', bg: '#c3002f', fg: '#fff' },
+  { keys: ['volkswagen','vw'], abbr: 'VW', bg: '#001e50', fg: '#fff' },
+  { keys: ['yamaha'],      abbr: 'YA', bg: '#002b5c', fg: '#fff' },
+  { keys: ['taurus'],      abbr: 'TA', bg: '#2a2a2a', fg: '#ccc' },
+  { keys: ['kaizen'],      abbr: 'KZ', bg: '#1a3a1a', fg: '#6f6' },
+  { keys: ['mmp'],         abbr: 'MM', bg: '#222', fg: '#f90' },
+  { keys: ['herrator'],    abbr: 'HR', bg: '#3a0a0a', fg: '#f44' },
+  { keys: ['ot3','g-rally'],abbr: 'OT', bg: '#333', fg: '#fff' },
+  { keys: ['jmp'],         abbr: 'JM', bg: '#444', fg: '#fff' },
+  { keys: ['santana'],     abbr: 'SA', bg: '#2a4a2a', fg: '#fff' },
+];
+
+function vehicleBadge(vehicle) {
+  if (!vehicle) return '';
+  const v = vehicle.toLowerCase();
+  for (const b of BRAND_MAP) {
+    if (b.keys.some(k => v.includes(k))) {
+      return `<span class="brand-badge" style="background:${b.bg};color:${b.fg}">${b.abbr}</span>`;
+    }
+  }
+  const abbr = vehicle.split(' ')[0].slice(0, 2).toUpperCase();
+  return `<span class="brand-badge" style="background:#444;color:#ddd">${abbr}</span>`;
+}
+
 function fmtTime(sec) {
   if (sec == null || isNaN(sec)) return '—';
   const neg = sec < 0;
@@ -578,6 +623,7 @@ async function loadMeta() {
       abandon_special_id: p.abandon_special_id,
       abandon_reason: p.abandon_reason || null,
       abandon_place: p.abandon_place || null,
+      vehicle: p.vehicle || '',
     };
   }
 
@@ -817,10 +863,13 @@ function makeRow(cells, isRef, pid) {
 
 function buildTable(rows, refTime, colHeader, penFn) {
   const hasPen = !!penFn;
-  const penTh = hasPen ? '<th class="pen-col">Pen.</th>' : '';
+  const penTh = hasPen ? '<th class="pen-col col-pen">Pen.</th>' : '';
   const thead = `<thead><tr>
-    <th class="pos">Pos</th><th>Nº</th><th>Piloto</th><th>Grupo</th>
-    <th>${colHeader}</th>${penTh}<th>Dif 1º</th><th style="color:var(--ref-col)">Dif Ref</th>
+    <th class="pos">Pos</th><th>Nº</th><th>Piloto</th>
+    <th class="col-grupo">Grupo</th>
+    <th>${colHeader}</th>${penTh}
+    <th>Dif 1º</th>
+    <th class="col-difref" style="color:var(--ref-col)">Dif Ref</th>
   </tr></thead>`;
   const tbodyRows = rows.map((r, i) => {
     const p = participants[r.pid];
@@ -828,36 +877,31 @@ function buildTable(rows, refTime, colHeader, penFn) {
     const dif1 = i === 0 ? null : r.t - rows[0].t;
     const difRef = refTime != null ? r.t - refTime : null;
     let penCell = '';
+    let penInline = '';
     if (hasPen) {
       const pen = penFn(r.pid);
       if (pen.total !== 0) {
         penDataMap.set(r.pid, pen);
         const cls = pen.total > 0 ? 'pen-pos' : 'pen-neg';
-        penCell = `<td class="pen-col"><span class="${cls} pen-click" data-pen-pid="${r.pid}">${fmtPenTime(pen.total)}</span></td>`;
+        penCell = `<td class="pen-col col-pen"><span class="${cls} pen-click" data-pen-pid="${r.pid}">${fmtPenTime(pen.total)}</span></td>`;
+        penInline = `<span class="pen-inline ${cls} pen-click" data-pen-pid="${r.pid}">${fmtPenTime(pen.total)}</span>`;
       } else {
-        penCell = '<td class="pen-col"></td>';
+        penCell = '<td class="pen-col col-pen"></td>';
       }
     }
-    const cells = [
-      i + 1,
-      `<span class="num">${p.ident}</span>`,
-      `${p.pilot}<br><span class="grp">${p.copilot}</span>`,
-      `<span class="grp">${p.group}</span>`,
-      `<span class="time-val">${fmtTime(r.t)}</span>`,
-      i === 0 ? '<span class="dif-zero">—</span>' : fmtDif(dif1),
-      isRef ? '<span class="dif-zero">REF</span>' : fmtDif(difRef),
-    ];
+    const badge = vehicleBadge(p.vehicle);
     const refAttr = isRef ? ' class="ref-row"' : '';
-    const tds = cells.map((c, ci) => {
-      if (ci === 2) {
-        const click = isRef ? '' : ` onclick="setRef(${r.pid})"`;
-        return `<td class="pilot-cell"${click}>${c}</td>`;
-      }
-      return `<td>${c}</td>`;
-    });
-    // Inserir penCell após o tempo (índice 4)
-    tds.splice(5, 0, penCell);
-    return `<tr${refAttr}>${tds.join('')}</tr>`;
+    const click = isRef ? '' : ` onclick="setRef(${r.pid})"`;
+    return `<tr${refAttr}>
+      <td class="pos">${i + 1}</td>
+      <td><span class="num">${p.ident}</span>${badge}</td>
+      <td class="pilot-cell"${click}>${p.pilot}<br><span class="grp">${p.copilot}</span></td>
+      <td class="col-grupo"><span class="grp">${p.group}</span></td>
+      <td><span class="time-val">${fmtTime(r.t)}</span>${penInline}</td>
+      ${penCell}
+      <td>${i === 0 ? '<span class="dif-zero">—</span>' : fmtDif(dif1)}</td>
+      <td class="col-difref">${isRef ? '<span class="dif-zero">REF</span>' : fmtDif(difRef)}</td>
+    </tr>`;
   });
   return thead + `<tbody>${tbodyRows.join('')}</tbody>`;
 }
