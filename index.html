@@ -249,20 +249,14 @@
   }
   .pen-inline { display: none; font-size: 11px; font-weight: bold; }
   @media (max-width: 640px) {
-    .col-grupo, .col-pen, .col-difref { display: none; }
-    .pen-inline { display: block; margin-top: 2px; }
-    td, th { padding: 5px 4px; font-size: 12px; }
-    .pilot-cell { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pilot-cell br { display: none; }
-    .pilot-cell .grp { display: none; }
+    .col-pos, .col-grupo, .col-pen, .col-difref, .col-dif1 { display: none; }
+    .pen-inline { display: block; margin-top: 1px; }
+    td, th { padding: 6px 5px; font-size: 12px; }
     .brand-badge { font-size: 8px; padding: 1px 3px; }
     .num { font-size: 13px; }
-    table { table-layout: fixed; width: 100%; min-width: unset; }
-    table th:nth-child(1), table td:nth-child(1) { width: 32px; }  /* Pos */
-    table th:nth-child(2), table td:nth-child(2) { width: 52px; }  /* Nº + badge */
-    table th:nth-child(3), table td:nth-child(3) { width: auto; }  /* Piloto */
-    table th:nth-child(5), table td:nth-child(5) { width: 68px; }  /* Tempo */
-    table th:nth-child(6), table td:nth-child(6) { width: 52px; }  /* Dif 1º */
+    table { width: 100%; min-width: unset; }
+    .time-val { white-space: nowrap; }
+    .pilot-cell .grp { display: block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   }
   .grp { color: var(--muted); font-size: 10px; }
   .time-val { font-variant-numeric: tabular-nums; }
@@ -294,7 +288,7 @@
     body { font-size: 12px; }
     header { gap: 8px; padding: 6px 10px; padding-top: calc(6px + var(--safe-top)); }
     header h1 { font-size: 13px; }
-    table { font-size: 11px; min-width: 400px; }
+    table { font-size: 11px; min-width: unset; width: 100%; }
     td, th { padding: 4px 6px; }
     .tab { padding: 8px 12px; font-size: 11px; }
   }
@@ -873,10 +867,10 @@ function buildTable(rows, refTime, colHeader, penFn) {
   const hasPen = !!penFn;
   const penTh = hasPen ? '<th class="pen-col col-pen">Pen.</th>' : '';
   const thead = `<thead><tr>
-    <th class="pos">Pos</th><th>Nº</th><th>Piloto</th>
+    <th class="pos col-pos">Pos</th><th>Nº</th><th>Piloto</th>
     <th class="col-grupo">Grupo</th>
     <th>${colHeader}</th>${penTh}
-    <th>Dif 1º</th>
+    <th class="col-dif1">Dif 1º</th>
     <th class="col-difref" style="color:var(--ref-col)">Dif Ref</th>
   </tr></thead>`;
   const tbodyRows = rows.map((r, i) => {
@@ -901,13 +895,13 @@ function buildTable(rows, refTime, colHeader, penFn) {
     const refAttr = isRef ? ' class="ref-row"' : '';
     const click = isRef ? '' : ` onclick="setRef(${r.pid})"`;
     return `<tr${refAttr}>
-      <td class="pos">${i + 1}</td>
+      <td class="pos col-pos">${i + 1}</td>
       <td><span class="num">${p.ident}</span>${badge}</td>
       <td class="pilot-cell"${click}>${p.pilot}<br><span class="grp">${p.copilot}</span></td>
       <td class="col-grupo"><span class="grp">${p.group}</span></td>
       <td><span class="time-val">${fmtTime(r.t)}</span>${penInline}</td>
       ${penCell}
-      <td>${i === 0 ? '<span class="dif-zero">—</span>' : fmtDif(dif1)}</td>
+      <td class="col-dif1">${i === 0 ? '<span class="dif-zero">—</span>' : fmtDif(dif1)}</td>
       <td class="col-difref">${isRef ? '<span class="dif-zero">REF</span>' : fmtDif(difRef)}</td>
     </tr>`;
   });
@@ -962,12 +956,12 @@ function renderTable0() {
       const reasonHtml = parts.length ? `<br><span class="dnf-reason">${parts.join(' — ')}</span>` : '';
       const penCell = hasPen ? '<td></td>' : '';
       dnfHtml += `<tr class="dnf-row">
-        <td class="pos">DNF</td>
+        <td class="pos col-pos">DNF</td>
         <td><span class="num dnf-num">${p.ident}</span></td>
         <td class="pilot-cell">${p.pilot}<br><span class="grp">${p.copilot}</span></td>
         <td><span class="grp">${p.group}</span></td>
         <td class="dnf-time">DNF em ${spName}${reasonHtml}</td>
-        ${penCell}<td></td><td></td>
+        ${penCell}<td class="col-dif1"></td><td class="col-difref"></td>
       </tr>`;
     }
     dnfHtml += '</tbody>';
