@@ -247,6 +247,11 @@
   .dif-pos { color: var(--green); }
   .dif-neg { color: var(--red); }
   .dif-zero { color: var(--muted); }
+  .dnf-separator { text-align: center; color: var(--muted); font-size: 11px; padding: 6px; border-top: 1px solid #2e2e3e; letter-spacing: .05em; }
+  .dnf-row td { opacity: 0.6; }
+  .dnf-num { color: #e05050 !important; }
+  .dnf-time { color: #e05050; font-size: 12px; }
+  .dnf-reason { color: var(--muted); font-size: 11px; }
   .pen-col { text-align: center; white-space: nowrap; }
   .pen-pos { color: #e05050; font-weight: bold; font-variant-numeric: tabular-nums; }
   .pen-neg { color: #50c878; font-weight: bold; font-variant-numeric: tabular-nums; }
@@ -571,6 +576,8 @@ async function loadMeta() {
       category: p.category,
       active: p.active,
       abandon_special_id: p.abandon_special_id,
+      abandon_reason: p.abandon_reason || null,
+      abandon_place: p.abandon_place || null,
     };
   }
 
@@ -721,6 +728,7 @@ function getAccumTime(pid) {
   if (prlSoma && prlSpecial && prlTimes[String(pid)] != null) {
     total += prlTimes[String(pid)];
   }
+  const penIds = [];
   for (let i = 0; i < currentSpecialIdx; i++) {
     if (specials[i].compute !== 1) continue;
     const data = partialsBySpecial[specials[i].id];
@@ -728,13 +736,17 @@ function getAccumTime(pid) {
     const t = participantTime(data, pid);
     if (!t || t.finish == null) return null;
     total += t.finish;
+    penIds.push(specials[i].id);
   }
   const sp = specials[currentSpecialIdx];
   if (sp.compute === 1) {
     const cpTime = getTimeAtCP(sp.id, pid);
     if (cpTime == null) return null;
     total += cpTime;
+    penIds.push(sp.id);
   }
+  // Somar penalizações de todas as especiais incluídas
+  if (penIds.length > 0) total += getPenalties(Number(pid), penIds).total;
   return total;
 }
 
@@ -852,7 +864,12 @@ function buildTable(rows, refTime, colHeader, penFn) {
 
 function renderTable0() {
   const rows = [];
+  const dnfPids = [];
   for (const pid of allParticipantIds()) {
+    if (participants[pid].abandon_special_id) {
+      dnfPids.push(pid);
+      continue;
+    }
     const t = getAccumTime(pid);
     if (t != null) rows.push({ pid, t });
   }
@@ -867,15 +884,54 @@ function renderTable0() {
     if (prlSpecial && document.getElementById('chk-prl')?.checked) specialIds.push(prlSpecial.id);
     penFn = pid => getPenalties(Number(pid), specialIds);
   }
-  document.getElementById('table0').innerHTML = buildTable(rows, refTime, 'Tempo acum.', penFn);
+
+  let html = buildTable(rows, refTime, 'Tempo acum.', penFn);
+
+  // Linhas DNF no final
+  if (dnfPids.length > 0) {
+    const hasPen = !!penFn;
+    // Calcular número total de colunas: Pos+Nº+Piloto+Grupo+Tempo + [Pen] + Dif1 + DifRef
+    const nCols = hasPen ? 8 : 7;
+    let dnfHtml = `<tbody><tr><td colspan="${nCols}" class="dnf-separator">— Não classificados / DNF —</td></tr>`;
+    // Ordenar DNF por special e depois por dorsal
+    dnfPids.sort((a, b) => {
+      const sa = participants[a].abandon_special_id || 0;
+      const sb = participants[b].abandon_special_id || 0;
+      if (sa !== sb) return sa - sb;
+      return participants[a].ident.localeCompare(participants[b].ident, undefined, {numeric: true});
+    });
+    for (const pid of dnfPids) {
+      const p = participants[pid];
+      const sp = specials.find(s => s.id === p.abandon_special_id);
+      const spName = sp ? sp.name : '?';
+      const parts = [p.abandon_place, p.abandon_reason].filter(Boolean);
+      const reasonHtml = parts.length ? `<br><span class="dnf-reason">${parts.join(' — ')}</span>` : '';
+      const penCell = hasPen ? '<td></td>' : '';
+      dnfHtml += `<tr class="dnf-row">
+        <td class="pos">DNF</td>
+        <td><span class="num dnf-num">${p.ident}</span></td>
+        <td class="pilot-cell">${p.pilot}<br><span class="grp">${p.copilot}</span></td>
+        <td><span class="grp">${p.group}</span></td>
+        <td class="dnf-time">DNF em ${spName}${reasonHtml}</td>
+        ${penCell}<td></td><td></td>
+      </tr>`;
+    }
+    dnfHtml += '</tbody>';
+    // Inserir antes do </table> final — buildTable devolve thead+tbody sem tag table
+    html += dnfHtml;
+  }
+
+  document.getElementById('table0').innerHTML = html;
 }
 
 function renderTable1() {
   const sp = specials[currentSpecialIdx];
   const rows = [];
   for (const pid of allParticipantIds()) {
-    const t = getTimeAtCP(sp.id, pid);
-    if (t != null) rows.push({ pid, t });
+    const raw = getTimeAtCP(sp.id, pid);
+    if (raw == null) continue;
+    const pen = getPenalties(Number(pid), [sp.id]);
+    rows.push({ pid, t: raw + pen.total });
   }
   rows.sort((a, b) => a.t - b.t);
   const cpLabel = currentCP === 'finish' ? 'Chegada' : `CP${currentCP+1}`;
