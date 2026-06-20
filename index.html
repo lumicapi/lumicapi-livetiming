@@ -261,41 +261,46 @@
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.88);
+    background: var(--bg);
     z-index: 200;
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 12px;
-    padding-top: calc(12px + var(--safe-top));
-    padding-bottom: calc(12px + var(--safe-bot));
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
   }
-  #chart-inner {
+  #chart-modal.open { display: flex; }
+
+  #chart-header {
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    max-width: 1200px;
-    margin: 0 auto;
-    position: relative;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 14px;
+    padding-top: calc(10px + var(--safe-top));
+    padding-left: calc(14px + var(--safe-l));
+    padding-right: calc(14px + var(--safe-r));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    gap: 10px;
   }
   #chart-title {
     font-size: 13px;
     color: var(--accent);
-    margin-bottom: 10px;
-    padding-right: 32px;
+    flex: 1;
   }
   #chart-close {
-    position: absolute;
-    top: 10px;
-    right: 10px;
     font-size: 16px;
-    padding: 4px 10px;
-    min-height: auto;
-    line-height: 1;
+    padding: 6px 12px;
+    min-height: 36px;
+    flex-shrink: 0;
   }
   #chart-svg-wrap {
-    overflow-x: auto;
+    flex: 1;
+    overflow: auto;
     -webkit-overflow-scrolling: touch;
+    padding: 8px;
+    padding-left: calc(8px + var(--safe-l));
+    padding-right: calc(8px + var(--safe-r));
+    padding-bottom: calc(8px + var(--safe-bot));
   }
   #chart-tooltip {
     display: none;
@@ -303,13 +308,17 @@
     background: #111118;
     border: 1px solid var(--border);
     border-radius: 5px;
-    padding: 6px 10px;
-    font-size: 11px;
-    line-height: 1.5;
+    padding: 7px 11px;
+    font-size: 12px;
+    line-height: 1.6;
     pointer-events: none;
     z-index: 300;
-    max-width: 220px;
-    white-space: nowrap;
+    max-width: 240px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  }
+  @media (max-width: 480px) {
+    #chart-title { font-size: 12px; }
+    #chart-tooltip { font-size: 11px; max-width: 200px; }
   }
 </style>
 </head>
@@ -352,11 +361,11 @@
 
 <!-- Chart modal -->
 <div id="chart-modal">
-  <div id="chart-inner">
-    <button id="chart-close" onclick="closeChart()">✕</button>
+  <div id="chart-header">
     <div id="chart-title"></div>
-    <div id="chart-svg-wrap"></div>
+    <button id="chart-close" onclick="closeChart()">✕ Fechar</button>
   </div>
+  <div id="chart-svg-wrap"></div>
 </div>
 <div id="chart-tooltip"></div>
 
@@ -898,14 +907,20 @@ function showChart() {
 
   const maxPilots = Math.max(...colData.map(c => c.count), 1);
 
-  // SVG layout — margem esquerda e direita largas para etiquetas
-  const LABEL_W = 96; // espaço para "200 JFerreira"
-  const ML = LABEL_W + 10, MR = LABEL_W + 10, MT = 52, MB = 16;
-  const colW = Math.max(110, Math.min(170, 860 / Math.max(nCols - 1, 1)));
+  // SVG layout — adapta ao ecrã
+  const mobile = window.innerWidth < 600;
+  const LABEL_W = mobile ? 82 : 100;
+  const ML = LABEL_W + 12, MR = LABEL_W + 12, MT = mobile ? 44 : 52, MB = 16;
+  const colW = mobile
+    ? Math.max(80, Math.min(130, (window.innerWidth * 0.9) / Math.max(nCols - 1, 1)))
+    : Math.max(110, Math.min(170, 860 / Math.max(nCols - 1, 1)));
   const W = ML + colW * (nCols - 1) + MR;
-  const rowH = Math.max(10, Math.min(18, 680 / maxPilots));
+  const availH = mobile ? (window.innerHeight - 80) : 680;
+  const rowH = Math.max(mobile ? 12 : 10, Math.min(mobile ? 22 : 18, availH / maxPilots));
   const H = MT + rowH * (maxPilots - 1) + MB;
-  const fontSize = rowH >= 12 ? 10 : rowH >= 9 ? 8.5 : 7.5;
+  const fontSize = mobile
+    ? (rowH >= 16 ? 11 : rowH >= 13 ? 10 : 9)
+    : (rowH >= 12 ? 10 : rowH >= 9 ? 8.5 : 7.5);
 
   const colX = i => ML + i * colW;
   const posY = pos => MT + (pos - 1) * rowH;
@@ -990,38 +1005,55 @@ function showChart() {
 
   document.getElementById('chart-title').textContent = `Posições por CP — ${sp.name}`;
   document.getElementById('chart-svg-wrap').innerHTML = svg;
-  document.getElementById('chart-modal').style.display = 'block';
+  const modal = document.getElementById('chart-modal');
+  modal.classList.add('open');
 
   // Events
   const wrap = document.getElementById('chart-svg-wrap');
   const tt = document.getElementById('chart-tooltip');
+  let touchTimer = null;
 
-  function onOver(e) {
-    const dot = e.target.closest('.pd');
-    if (!dot) { tt.style.display = 'none'; unhighlightChart(); return; }
+  function showTip(dot, clientX, clientY) {
     const pid = dot.dataset.pid;
     const color = pidColors[+pid];
     tt.innerHTML = `<span style="color:${color}">●</span> <b>${dot.dataset.lbl}</b><br>${dot.dataset.cp}: <b>${dot.dataset.pos}º</b> — ${dot.dataset.t}`;
-    const x = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
-    const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
-    tt.style.left = `${Math.min(x + 14, window.innerWidth - 240)}px`;
-    tt.style.top  = `${Math.max(y - 50, 8)}px`;
     tt.style.display = 'block';
+    // Posicionar: em mobile fica sempre no topo do modal; em desktop segue o rato
+    if (mobile) {
+      tt.style.left = `${Math.min(clientX, window.innerWidth - 210)}px`;
+      tt.style.top = '80px';
+    } else {
+      tt.style.left = `${Math.min(clientX + 14, window.innerWidth - 250)}px`;
+      tt.style.top  = `${Math.max(clientY - 50, 8)}px`;
+    }
     highlightChart(pid);
   }
 
-  wrap._chartOver = onOver;
-  wrap._chartOut = () => { tt.style.display = 'none'; unhighlightChart(); };
+  function hideTip() { tt.style.display = 'none'; unhighlightChart(); }
+
+  function onMouseMove(e) {
+    const dot = e.target.closest('.pd');
+    if (!dot) { hideTip(); return; }
+    showTip(dot, e.clientX, e.clientY);
+  }
+
+  function onTouchStart(e) {
+    const dot = e.target.closest('.pd');
+    if (!dot) { hideTip(); return; }
+    e.preventDefault();
+    const t = e.touches[0];
+    showTip(dot, t.clientX, t.clientY);
+    clearTimeout(touchTimer);
+    touchTimer = setTimeout(hideTip, 2500);
+  }
+
+  wrap._chartOver = onMouseMove;
+  wrap._chartOut  = hideTip;
+  wrap._chartTouch = onTouchStart;
 
   wrap.addEventListener('mousemove', wrap._chartOver);
   wrap.addEventListener('mouseleave', wrap._chartOut);
-  wrap.addEventListener('touchstart', e => {
-    e.preventDefault();
-    onOver(e);
-  }, { passive: false });
-  wrap.addEventListener('touchend', () => {
-    setTimeout(() => { tt.style.display = 'none'; unhighlightChart(); }, 1800);
-  });
+  wrap.addEventListener('touchstart', wrap._chartTouch, { passive: false });
 }
 
 function highlightChart(pid) {
@@ -1050,9 +1082,10 @@ function unhighlightChart() {
 
 function closeChart() {
   const wrap = document.getElementById('chart-svg-wrap');
-  if (wrap._chartOver) wrap.removeEventListener('mousemove', wrap._chartOver);
-  if (wrap._chartOut) wrap.removeEventListener('mouseleave', wrap._chartOut);
-  document.getElementById('chart-modal').style.display = 'none';
+  if (wrap._chartOver)   wrap.removeEventListener('mousemove',  wrap._chartOver);
+  if (wrap._chartOut)    wrap.removeEventListener('mouseleave', wrap._chartOut);
+  if (wrap._chartTouch)  wrap.removeEventListener('touchstart', wrap._chartTouch);
+  document.getElementById('chart-modal').classList.remove('open');
   document.getElementById('chart-tooltip').style.display = 'none';
 }
 
