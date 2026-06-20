@@ -509,10 +509,10 @@ function schedStart(utStart) {
 
 function participantTime(specialData, pid) {
   const t = specialData.times[String(pid)];
-  if (!t) return null;
+  if (!t || !t.ut_start) return null; // ut_start=0 significa que não partiu
   const sched = schedStart(t.ut_start);
-  const cps = (t.uts_partial || []).map(u => u != null ? u - sched : null);
-  const finish = t.ut_finish != null ? t.ut_finish - sched : null;
+  const cps = (t.uts_partial || []).map(u => (u && u > 0) ? u - sched : null);
+  const finish = (t.ut_finish && t.ut_finish > 0) ? t.ut_finish - sched : null;
   return { cps, finish, run: t.run };
 }
 
