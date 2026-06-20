@@ -9,6 +9,8 @@
 <meta name="apple-mobile-web-app-title" content="Lumicapi Timing">
 <meta name="theme-color" content="#1a1a22">
 <title>Lumicapi Live Timing</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
     --bg: #0f0f13;
@@ -256,6 +258,50 @@
     .tab { padding: 8px 12px; font-size: 11px; }
   }
 
+  /* ── mapa ── */
+  #view3 { padding: 0; display: none; flex-direction: column; }
+  #view3.active { display: flex; }
+  #map-div {
+    flex: 1;
+    min-height: calc(100vh - 140px);
+  }
+  #map-status {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 6px 14px;
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  /* popup do leaflet com tema escuro */
+  .leaflet-popup-content-wrapper {
+    background: #1a1a22;
+    color: #e8e8f0;
+    border: 1px solid #2e2e3e;
+    border-radius: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+  }
+  .leaflet-popup-tip { background: #1a1a22; }
+  .leaflet-popup-content { margin: 10px 14px; line-height: 1.6; }
+  .leaflet-popup-close-button { color: #888 !important; }
+  .map-marker-dot {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-family: ui-monospace, monospace;
+    border: 2px solid rgba(0,0,0,0.45);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    cursor: pointer;
+    transition: transform .15s;
+  }
+  .map-marker-dot:hover { transform: scale(1.25); }
+
   /* ── chart modal ── */
   #chart-modal {
     display: none;
@@ -353,6 +399,7 @@
   <div class="tab active" onclick="switchTab(0)">1 · Geral acumulada</div>
   <div class="tab" onclick="switchTab(1)">2 · Especial até CP</div>
   <div class="tab" onclick="switchTab(2)">3 · Setor entre CPs</div>
+  <div class="tab" onclick="switchTab(3)">4 · Mapa ao vivo</div>
 </div>
 
 <div class="cp-selector" id="cp-bar">
@@ -389,10 +436,23 @@
   </div>
   <div class="tbl-wrap"><table id="table2"></table></div>
 </div>
+<div class="view" id="view3">
+  <div id="map-div"></div>
+  <div id="map-status">
+    <span id="map-count">—</span>
+    <span id="map-time">—</span>
+  </div>
+</div>
 
 <script>
 const RALLY_ID = 359;
 const BASE = 'https://rest3.anube.es/rallyrest/timing/api';
+const SUBRALLY_ID = 8815;
+const TRACK_BASE = 'https://rest.anube.es/rallyrest/default/api';
+
+let map = null;
+let mapMarkers = {}; // dorsal → {marker, dot}
+let mapInitialized = false;
 
 let specials = [];
 let participants = {};
@@ -761,6 +821,11 @@ function switchTab(idx) {
   activeTab = idx;
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
   document.querySelectorAll('.view').forEach((v, i) => v.classList.toggle('active', i === idx));
+  if (idx === 3) {
+    initMap().then(() => {
+      if (map) map.invalidateSize();
+    });
+  }
 }
 
 function copyTable(viewIdx) {
@@ -844,6 +909,107 @@ function copySMS(viewIdx) {
   copyToClipboard(lines.join('\n'))
     .then(() => setStatus('SMS copiado!'))
     .catch(() => setStatus('Erro ao copiar'));
+}
+
+// ── mapa ao vivo ──────────────────────────────────────────────────────────────
+
+async function initMap() {
+  if (mapInitialized) return;
+  mapInitialized = true;
+
+  // Centrar na prova
+  let center = [38.7249, -6.9985], zoom = 11;
+  try {
+    const rd = await fetchJSON(`${TRACK_BASE}/subrally/${SUBRALLY_ID}.json?subrally_id=${SUBRALLY_ID}&token=&num_fields=5`);
+    const d = rd.event.data;
+    if (d.latitud) center = [d.latitud, d.longitud];
+    if (d.zoom) zoom = d.zoom;
+  } catch(e) {}
+
+  map = L.map('map-div', { center, zoom, zoomControl: true });
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19
+  }).addTo(map);
+
+  await loadMapData();
+}
+
+async function loadMapData() {
+  if (!mapInitialized) return;
+  try {
+    const res = await fetchJSON(`${TRACK_BASE}/participants/${SUBRALLY_ID}.json?subrally_id=${SUBRALLY_ID}&token=&num_fields=5`);
+    const pilots = res.event.data.participants || [];
+
+    // Construir lookup pelo dorsal para cruzar com timing
+    const timingByIdent = {};
+    for (const [id, p] of Object.entries(participants)) {
+      timingByIdent[p.ident] = p;
+    }
+
+    let active = 0;
+    for (const p of pilots) {
+      if (!p.latitude || !p.longitude) continue;
+      const lat = p.latitude, lng = p.longitude;
+      const color = '#' + (p.color || 'e8a020');
+      const dorsal = String(p.dorsal);
+      const timing = timingByIdent[dorsal];
+
+      // Tamanho do marcador: maior para os do timing (carros da nossa prova)
+      const isTiming = !!timing;
+      const size = isTiming ? 30 : 20;
+      const fontSize = isTiming ? 9 : 7;
+      const label = isTiming ? dorsal : dorsal.length <= 3 ? dorsal : dorsal.slice(-2);
+
+      const lastSeen = new Date(p.unixtime_gps * 1000);
+      const ageMin = (Date.now() - lastSeen) / 60000;
+      const opacity = p.on_track ? 1 : 0.45;
+
+      // Info para popup
+      const pilotName = timing ? timing.pilot : p.piloto;
+      const group = timing ? timing.group : p.clase;
+      const vehicle = timing?.vehicle || p.vehiculo_modelo || '';
+      const popupHtml = `
+        <b>${dorsal} — ${pilotName}</b><br>
+        ${vehicle ? vehicle + '<br>' : ''}
+        Grupo: <b>${group}</b><br>
+        Velocidade: <b>${p.speed} km/h</b><br>
+        Direção: ${p.bearing}°<br>
+        Última pos.: ${lastSeen.toLocaleTimeString('pt-PT')}
+        ${ageMin > 5 ? `<br><span style="color:#e05050">⚠ há ${Math.round(ageMin)} min</span>` : ''}
+      `;
+
+      if (mapMarkers[dorsal]) {
+        // Atualizar posição e popup
+        mapMarkers[dorsal].marker.setLatLng([lat, lng]);
+        mapMarkers[dorsal].marker.setPopupContent(popupHtml);
+        // Atualizar opacidade no dot
+        mapMarkers[dorsal].dot.style.opacity = opacity;
+      } else {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div class="map-marker-dot" style="width:${size}px;height:${size}px;background:${color};font-size:${fontSize}px;opacity:${opacity}">${label}</div>`,
+          iconSize: [size, size],
+          iconAnchor: [size/2, size/2],
+        });
+        const marker = L.marker([lat, lng], { icon })
+          .addTo(map)
+          .bindPopup(popupHtml, { maxWidth: 220 });
+        // Guardar referência ao elemento DOM do dot
+        const dotEl = null; // será preenchido após render
+        mapMarkers[dorsal] = { marker, dot: null };
+      }
+      if (p.on_track) active++;
+    }
+
+    document.getElementById('map-count').textContent =
+      `${pilots.length} pilotos · ${active} em pista`;
+    document.getElementById('map-time').textContent =
+      `Mapa: ${new Date().toLocaleTimeString('pt-PT')}`;
+  } catch(e) {
+    document.getElementById('map-time').textContent = 'Erro: ' + e.message;
+  }
 }
 
 // ── chart ─────────────────────────────────────────────────────────────────────
@@ -1089,10 +1255,18 @@ function closeChart() {
   document.getElementById('chart-tooltip').style.display = 'none';
 }
 
+let mapRefreshTimer = null;
+
 function setupRefresh() {
   if (refreshTimer) clearInterval(refreshTimer);
   const secs = +document.getElementById('sel-refresh').value;
   if (secs > 0) refreshTimer = setInterval(loadData, secs * 1000);
+
+  // Mapa refresca sempre a cada 30s quando inicializado
+  if (mapRefreshTimer) clearInterval(mapRefreshTimer);
+  mapRefreshTimer = setInterval(() => {
+    if (mapInitialized) loadMapData();
+  }, 30000);
 }
 
 document.getElementById('sel-refresh').addEventListener('change', setupRefresh);
