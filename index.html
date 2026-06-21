@@ -502,6 +502,7 @@ let penalizations = [];
 let currentSpecialIdx = 0;
 let currentCP = 0;
 let refId = null;
+let firstLoad = true;
 let activeTab = 0;
 let refreshTimer = null;
 
@@ -647,19 +648,56 @@ async function loadMeta() {
 
   const sel = document.getElementById('sel-special');
   sel.innerHTML = '';
+  let lastDone = -1;
   specials.forEach((s, i) => {
     const opt = document.createElement('option');
     opt.value = i;
     opt.text = `${s.name} — ${s.extra}`;
     sel.appendChild(opt);
     if (s.state === 1) { sel.value = i; currentSpecialIdx = i; }
+    if (s.state === 2 && s.compute === 1) lastDone = i;
   });
+  // Se nenhuma está em curso, usar a última terminada (ou a última)
+  if (currentSpecialIdx === 0 && lastDone > 0) {
+    currentSpecialIdx = lastDone;
+    sel.value = lastDone;
+  } else if (currentSpecialIdx === 0 && specials.length > 1) {
+    currentSpecialIdx = specials.length - 1;
+    sel.value = specials.length - 1;
+  }
   sel.addEventListener('change', () => {
     currentSpecialIdx = +sel.value;
     currentCP = 0;
-    refId = null;
     loadData();
   });
+}
+
+function autoSelectCP() {
+  // Percorre as specials do fim para o início para encontrar a que tem dados
+  for (let si = specials.length - 1; si >= 0; si--) {
+    const sp = specials[si];
+    if (sp.compute !== 1) continue;
+    const data = partialsBySpecial[sp.id];
+    if (!data) continue;
+    const times = Object.values(data.times);
+    // Verifica Chegada
+    if (times.some(t => t.ut_finish && t.ut_finish > 0)) {
+      currentSpecialIdx = si;
+      currentCP = 'finish';
+      document.getElementById('sel-special').value = si;
+      return;
+    }
+    // Verifica CPs do último para o primeiro
+    const numCPs = (data.intermediates_meter || []).filter(m => m > 0).length;
+    for (let ci = numCPs - 1; ci >= 0; ci--) {
+      if (times.some(t => t.uts_partial && t.uts_partial[ci] && t.uts_partial[ci] > 0)) {
+        currentSpecialIdx = si;
+        currentCP = ci;
+        document.getElementById('sel-special').value = si;
+        return;
+      }
+    }
+  }
 }
 
 async function loadData() {
@@ -698,6 +736,7 @@ async function loadData() {
       }
     }
 
+    if (firstLoad) { autoSelectCP(); firstLoad = false; }
     updateBadge();
     buildCPBar();
     renderAll();
